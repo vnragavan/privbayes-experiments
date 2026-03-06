@@ -41,7 +41,9 @@ echo "=== 2. Generate figures and tables ==="
 python analysis/generate_all.py \
   --results-dir "$RESULTS_DIR" \
   --figures-dir "$FIGURES_DIR" \
-  --tables-dir "$TABLES_DIR"
+  --tables-dir "$TABLES_DIR" \
+  --schema "$SCHEMA" \
+  --data "$DATA"
 
 echo ""
 if [[ -f "$REPORT_DIR/report.tex" ]]; then

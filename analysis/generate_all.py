@@ -25,6 +25,16 @@ def run(label, fn):
         return False
 
 
+def _run_km_figure(results_dir, figures_dir, schema_path, data_path):
+    from analysis.figures.km_curves import fig_km_real_vs_synthetic
+    fig_km_real_vs_synthetic(
+        results_dir=results_dir,
+        schema_path=schema_path,
+        data_path=data_path,
+        out=os.path.join(figures_dir, "fig_km_real_vs_synthetic.pdf"),
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate figures and tables from sweep results.")
     parser.add_argument("--results-dir", default="results/eps_sweep",
@@ -33,6 +43,10 @@ def main():
                         help="Directory for figure PDFs (default: outputs/figures)")
     parser.add_argument("--tables-dir", default=None,
                         help="Directory for table .tex files (default: outputs/tables)")
+    parser.add_argument("--schema", default=None,
+                        help="Schema JSON path (required for KM real vs synthetic figure)")
+    parser.add_argument("--data", default=None,
+                        help="Real data CSV path (required for KM real vs synthetic figure)")
     args = parser.parse_args()
     results_dir = args.results_dir.rstrip("/")
     figures_dir = args.figures_dir or "outputs/figures"
@@ -66,6 +80,8 @@ def main():
             single_run_json=single_run,
             out=os.path.join(tables_dir, "tab3_privacy_performance.tex"))),
     ]
+    if args.schema and args.data:
+        tasks.insert(2, ("Figure: Real vs synthetic KM curves", lambda: _run_km_figure(results_dir, figures_dir, args.schema, args.data)))
 
     failed = []
     for label, fn in tasks:

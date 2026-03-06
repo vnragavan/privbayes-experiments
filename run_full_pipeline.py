@@ -182,6 +182,8 @@ def main() -> int:
         "--results-dir", str(results_dir),
         "--figures-dir", str(figures_dir),
         "--tables-dir", str(tables_dir),
+        "--schema", str(schema_path),
+        "--data", str(data_path),
     ]
     ok = _run(gen_cmd, "Step 3: Generate figures and tables (analysis/generate_all.py)", env=run_env)
     if not ok:
