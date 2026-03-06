@@ -1,0 +1,69 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Testing / tooling
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+pyright_errors.txt
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Internal / one-off (shrink repo)
+ANTIGRAVITY_PROMPTS.md
+patch_json_metrics.py
+
+# Archives (keep source only)
+*.zip
+
+# Generated outputs (reproducible via run_full_pipeline)
+# Report PDF/TeX are optional; figures and tables are produced but not tracked
+outputs/report.pdf
+outputs/report.tex
+outputs/report.aux
+outputs/report.log
+outputs/report.out
+outputs/*.pdf
+outputs/*.tex
+outputs/*.aux
+outputs/*.log
+outputs/*.out
+outputs/figures/**/*.pdf
+outputs/tables/**/*.tex
+outputs/ncctg_lung/
+outputs/*.csv
+outputs/*.json
+
+# Sweep / experiment results (reproducible via run_sweep)
+results/eps_sweep/*/
+results/eps_sweep/*.csv
+results/eps_sweep/*.json
+results/test_veteran/
+results/tmp_*/
+!results/eps_sweep/.gitkeep
+!results/compliance/.gitkeep
+
+# Schemas and data (users add their own; do not upload)
+schemas/*.json
+schemas/schema_generator.py
+schemas/schema_validator.py
+!schemas/.gitkeep
+data/*
+!data/.gitkeep
