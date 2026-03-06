@@ -153,65 +153,68 @@ def fig2_utility_curves(results_dir="results/eps_sweep",
     plt.close(fig)
 
 
-# ─── Figure 3: Survival radar + KM ───────────────────────────────
+# ─── Figure 3: Survival metrics vs privacy budget ─────────────────
 
 def fig3_survival_curves(results_dir="results/eps_sweep",
                           data_dir="outputs",
                           out="outputs/figures/fig3_survival_curves.pdf"):
+    """
+    Survival metrics vs ε (all six metrics from sweep results).
+    Uses the same data and layout as fig_survival_all_in_one so the
+    pipeline's main survival figure is fully driven by sweep data.
+    """
     apply_style()
     df = load_all_results(results_dir)
     if df.empty:
         print("[fig3] No results found — skipping")
         return
+    agg = aggregate_over_seeds(df)
     n_seeds = _n_seeds_from_df(df)
 
-    at1 = df[df["epsilon"] == 1.0]
-
-    METRICS = ["km_l1", "km_ci_overlap", "tstr_cindex",
-               "censoring_err", "joint_censoring"]
-    LABELS_RADAR = [
-        "KM L1\n(inv)", "KM CI\noverlap",
-        "TSTR\nC-index", "1-Cens.\nerror", "1-Joint\ncens."
+    panels = [
+        ("km_l1",              "KM L1 ↓",                    None),
+        ("km_ci_overlap",      "KM CI overlap ↑",            None),
+        ("tstr_cindex",        "TSTR C-index ↑",             None),
+        ("cox_spearman",       "Cox coef. Spearman ↑",       None),
+        ("censoring_err",      "1 − Censoring error ↑",      lambda m, s: (1.0 - m, s)),
+        ("joint_censoring",    "Joint surv.-cens. ↓",         None),
     ]
+    n_panels = len(panels)
+    fig, axes = plt.subplots(2, 3, figsize=(10, 6))
+    axes = axes.flatten()
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5))
+    for idx, (metric_col, ylabel, transform) in enumerate(panels):
+        ax = axes[idx]
+        for impl in IMPL_ORDER:
+            sub = agg[agg["implementation"] == impl].sort_values("epsilon")
+            if sub.empty:
+                continue
+            x = sub["epsilon"].values
+            m_col = f"{metric_col}_mean"
+            se_col = f"{metric_col}_se"
+            if m_col not in sub.columns:
+                continue
+            y = sub[m_col].values.copy()
+            ye = sub[se_col].values if se_col in sub.columns else None
+            if transform is not None:
+                y, ye = transform(y, ye)
+            alpha = 0.5 if impl == "synthcity" else 1.0
+            ax.plot(x, y, color=COLOURS[impl], ls=LINESTYLES[impl],
+                    marker=MARKERS[impl], markersize=3, alpha=alpha, label=LABELS[impl])
+            if ye is not None and not (np.isnan(ye).all() if hasattr(ye, '__iter__') else np.isnan(ye)):
+                ax.fill_between(x, y - ye, y + ye, color=COLOURS[impl], alpha=0.12 * alpha)
+        _safe_log_x(ax)
+        ax.set_xlabel(r"$\varepsilon$", fontsize=8)
+        ax.set_ylabel(ylabel, fontsize=8)
+        ax.set_title(ylabel, fontsize=9)
+        ax.legend(fontsize=6)
+        ax.tick_params(axis="both", labelsize=7)
 
-    # Left: bar chart of survival metrics at eps=1.0 (mean ± SE)
-    ax = axes[0]
-    x     = np.arange(len(METRICS))
-    width = 0.25
-    for i, impl in enumerate(IMPL_ORDER):
-        sub = at1[at1["implementation"] == impl]
-        if sub.empty:
-            continue
-        means = [sub[m].mean() for m in METRICS]
-        ses   = [sub[m].sem()  for m in METRICS]
-        alpha = 0.5 if impl == "synthcity" else 1.0
-        bars = ax.bar(x + (i - 1) * width, means, width,
-                      color=COLOURS[impl], alpha=alpha, label=LABELS[impl])
-        ax.errorbar(x + (i - 1) * width, means, yerr=ses,
-                    fmt="none", color="black", capsize=3, linewidth=1)
-    ax.set_xticks(x)
-    ax.set_xticklabels(LABELS_RADAR, fontsize=8)
-    ax.set_title(r"Survival metrics at $\varepsilon = 1.0$")
-    ax.legend(fontsize=7)
-
-    # Right: KM L1 vs epsilon (mean ± SE bands)
-    agg  = aggregate_over_seeds(df)
-    ax2  = axes[1]
-    for impl in IMPL_ORDER:
-        alpha = 0.5 if impl == "synthcity" else 1.0
-        _plot_line(ax2, agg, "km_l1", impl, alpha=alpha)
-    _safe_log_x(ax2)
-    ax2.set_xlabel(r"$\varepsilon$")
-    ax2.set_ylabel("KM L1 distance ↓")
-    ax2.set_title("KM L1 distance vs privacy budget")
-    ax2.legend(fontsize=7)
-
-    fig.text(0.5, -0.03, NONCOMPLIANT_FOOTNOTE,
-             ha="center", fontsize=7.5, style="italic")
-    fig.text(0.5, -0.06,
-             f"Error bars and shaded bands: mean ± 1 SE across {n_seeds} seeds.  {TSTR_SYNTHCITY_FOOTNOTE}",
+    for j in range(n_panels, len(axes)):
+        axes[j].set_visible(False)
+    fig.suptitle("Survival metrics vs privacy budget", fontsize=11, y=1.02)
+    fig.text(0.5, -0.02,
+             f"Mean ± 1 SE across {n_seeds} seeds.  {NONCOMPLIANT_FOOTNOTE}  {TSTR_SYNTHCITY_FOOTNOTE}",
              ha="center", fontsize=7, color="gray")
     plt.tight_layout()
     save_figure(fig, out)
@@ -521,14 +524,15 @@ def fig5_privacy_risk(results_dir="results/eps_sweep",
     ax2.set_title("Nearest-Neighbour Distance Ratio")
     ax2.legend(fontsize=7)
 
-    # Attribute inference AUC
+    # Attribute inference AUC (wider ylim: AUC can be < 0.5 when synthetic data
+    # weakens or inverts the relationship, e.g. dpmm at some ε)
     ax3 = axes[2]
     for impl in IMPL_ORDER:
         alpha = 0.5 if impl == "synthcity" else 1.0
         _plot_line(ax3, agg, "attr_inference_auc", impl, alpha=alpha)
     ax3.axhline(0.5, color="gray", ls="--", lw=1, label="Random baseline")
     _safe_log_x(ax3)
-    ax3.set_ylim(0.45, 1.0)
+    ax3.set_ylim(0.25, 1.0)
     ax3.set_xlabel(r"$\varepsilon$")
     ax3.set_ylabel("Attr. inf. AUC")
     ax3.set_title("Attribute Inference AUC")
@@ -537,7 +541,8 @@ def fig5_privacy_risk(results_dir="results/eps_sweep",
     fig.text(0.5, -0.03, NONCOMPLIANT_FOOTNOTE,
              ha="center", fontsize=7.5, style="italic")
     fig.text(0.5, -0.06,
-             f"Shaded bands: mean ± 1 SE across {n_seeds} seeds.",
+             f"Shaded bands: mean ± 1 SE across {n_seeds} seeds. "
+             "AUC < 0.5 can occur when synthetic data weakens or inverts the target–feature relationship.",
              ha="center", fontsize=7, color="gray")
     plt.tight_layout()
     save_figure(fig, out)
@@ -572,16 +577,24 @@ def _perf_results_dir(results_dir: str) -> str:
     return results_dir
 
 
+def _single_run_json_from_results_dir(results_dir: str) -> str:
+    """Preferred single-run JSON path: results_dir/results_eps1.0_seed0.json."""
+    return os.path.join(results_dir.rstrip("/"), "results_eps1.0_seed0.json")
+
+
 def fig6_performance(results_dir="results/eps_sweep",
-                      single_run_json="outputs/results_eps1.0_seed0.json",
+                      single_run_json=None,
                       out="outputs/figures/fig6_performance.pdf"):
     """
     Performance figure: mean ± 95% CI of fit time, sample time, and peak memory
     across seeds for each epsilon (using sweep data). Covers all epsilons in the sweep.
     If sweep has no timing (e.g. results from compute_sweep_metrics only),
     falls back to single-run bar chart at ε=1.0.
+    Legend is placed above the panels.
     """
     apply_style()
+    if single_run_json is None:
+        single_run_json = _single_run_json_from_results_dir(results_dir)
     perf_dir = _perf_results_dir(results_dir)
     df = load_all_results(perf_dir)
     has_sweep_perf = (
@@ -653,9 +666,11 @@ def fig6_performance(results_dir="results/eps_sweep",
             ax.yaxis.grid(True, alpha=0.3, zorder=0)
             ax.set_axisbelow(True)
 
-        # Only add legend once
+        # Legend above the panels
         if present_impls:
-            axes[0].legend(fontsize=7)
+            handles, labels = axes[0].get_legend_handles_labels()
+            fig.legend(handles, labels, fontsize=7, loc="upper center",
+                       bbox_to_anchor=(0.5, 1.02), ncol=len(present_impls), frameon=True)
         fig.text(0.5, -0.02, NONCOMPLIANT_FOOTNOTE,
                  ha="center", fontsize=7.5, style="italic")
         fig.text(0.5, -0.05,
@@ -668,8 +683,14 @@ def fig6_performance(results_dir="results/eps_sweep",
         plt.close(fig)
         return
 
-    # Fallback: single-run bar chart at ε=1.0
+    # Fallback: single-run bar chart at ε=1.0 (use results_dir first)
     perf = _load_single_run_perf(single_run_json)
+    if not perf:
+        alt_path = _single_run_json_from_results_dir(results_dir)
+        if alt_path != single_run_json:
+            perf = _load_single_run_perf(alt_path)
+            if perf:
+                single_run_json = alt_path
     if not perf and results_dir.startswith("outputs/"):
         sweep_name = os.path.basename(results_dir.rstrip("/"))
         sweep_single = os.path.join("results", "eps_sweep", sweep_name, "results_eps1.0_seed0.json")
@@ -735,6 +756,12 @@ def fig6_performance(results_dir="results/eps_sweep",
                                     ha="center", va="center",
                                     fontsize=7.5, color="white", fontweight="bold")
 
+    # Legend above the panels (single-run fallback)
+    if impl_list:
+        from matplotlib.patches import Patch
+        handles = [Patch(facecolor=COLOURS[i], alpha=0.85, label=LABELS[i]) for i in impl_list]
+        fig.legend(handles, [LABELS[i] for i in impl_list], fontsize=7, loc="upper center",
+                   bbox_to_anchor=(0.5, 1.02), ncol=len(impl_list), frameon=True)
     fig.text(0.5, -0.03,
              f"Single run at ε=1.0 (no sweep timing in {results_dir}).",
              ha="center", fontsize=7.5, color="gray")

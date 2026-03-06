@@ -42,21 +42,16 @@ def main():
     os.makedirs(tables_dir, exist_ok=True)
 
     from analysis.figures.fig2_to_6 import (
-        fig2_utility_curves, fig3_survival_curves,
+        fig2_utility_curves,
         fig4_compliance_adjusted, fig5_privacy_risk, fig6_performance,
-        fig_survival_all_in_one,
-        fig_survival_km_ci, fig_survival_1_minus_censoring_err, fig_survival_joint_censoring)
+        fig_survival_all_in_one)
     from analysis.tables.tables import (
         tab1_compliance_audit, tab_compliance_ledger, tab2_utility_survival, tab3_privacy_performance)
 
     single_run = os.path.join(results_dir, "results_eps1.0_seed0.json")
     tasks = [
         ("Figure 2: Utility curves",            lambda: fig2_utility_curves(results_dir=results_dir, out=os.path.join(figures_dir, "fig2_utility_curves.pdf"))),
-        ("Figure 3: Survival curves",           lambda: fig3_survival_curves(results_dir=results_dir, out=os.path.join(figures_dir, "fig3_survival_curves.pdf"))),
         ("Figure: Survival metrics all-in-one", lambda: fig_survival_all_in_one(results_dir=results_dir, out=os.path.join(figures_dir, "fig_survival_all_in_one.pdf"))),
-        ("Figure: KM CI overlap vs ε",          lambda: fig_survival_km_ci(results_dir=results_dir, out=os.path.join(figures_dir, "fig_survival_km_ci.pdf"))),
-        ("Figure: 1 − Censoring error vs ε",   lambda: fig_survival_1_minus_censoring_err(results_dir=results_dir, out=os.path.join(figures_dir, "fig_survival_1_minus_censoring_err.pdf"))),
-        ("Figure: Joint censoring vs ε",       lambda: fig_survival_joint_censoring(results_dir=results_dir, out=os.path.join(figures_dir, "fig_survival_joint_censoring.pdf"))),
         ("Figure 4: Compliance-adjusted",       lambda: fig4_compliance_adjusted(results_dir=results_dir, out=os.path.join(figures_dir, "fig4_compliance_adjusted.pdf"))),
         ("Figure 5: Privacy risk",              lambda: fig5_privacy_risk(results_dir=results_dir, out=os.path.join(figures_dir, "fig5_privacy_risk.pdf"))),
         ("Figure 6: Performance",               lambda: fig6_performance(

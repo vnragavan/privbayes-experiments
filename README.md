@@ -29,9 +29,12 @@ If the repo does not include the dpmm or SynthCity packages, follow [SETUP.md](S
 
 - **Schema:** a JSON file in the [schema-generator format](schema_validator.py) (e.g. `schemas/my_schema.json`).
   - Must include: `column_types`, `public_bounds` (numeric), `public_categories` (categorical), `target_spec`, and for survival: `target_spec.kind = "survival_pair"` with `targets`, `primary_target`, and a `cross_column_constraint` of type `survival_pair`.
-  - Optional: `sensitive_attributes` (list of column names) for the attribute-inference metric; if omitted, `target_spec.primary_target` is used.
+  - Optional: `sensitive_attributes` (see below).
   - The field `dataset` in the schema is used as the results subfolder name; if missing, the schema filename stem is used.
 - **Data:** a CSV with the same columns as in the schema (e.g. `data/my_data.csv`).
+
+**What is `sensitive_attributes`?**  
+If you open a schema (e.g. `schemas/lung_schema.json`) you’ll see an optional field `"sensitive_attributes": ["status"]`. This tells the pipeline **which column to use for the attribute-inference privacy metric**: we train a classifier on synthetic data to predict that column from the rest, then measure AUC on real data. High AUC means the synthetic data preserves the relationship and inference risk is higher. You don’t have to set it: if `sensitive_attributes` is omitted, the pipeline uses `target_spec.primary_target` (e.g. the event column in survival schemas). For the example lung schema, `"status"` is the binary event (e.g. 0 = censored, 1 = event), so it’s the natural choice for this metric.
 
 **If you don’t have a schema yet**, you can generate one from your CSV using the schema-generator (see [schema-generator/README.md](schema-generator/README.md)) or the project’s `schema_generator.py`, then validate:
 
