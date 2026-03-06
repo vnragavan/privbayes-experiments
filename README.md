@@ -1,6 +1,6 @@
 # PrivBayes experiments
 
-Run DP synthetic data experiments (CRN, dpmm, SynthCity) over an ε-sweep and produce a compliance/utility report.
+Run DP synthetic data experiments (CRN, dpmm, SynthCity) over an ε-sweep and produce figures and tables.
 
 ---
 
@@ -11,7 +11,6 @@ If you **clone the repo** and only want to **provide a schema and a dataset**, u
 ### 1. Prerequisites
 
 - **Python 3.10+**
-- **LaTeX** (e.g. `pdflatex`) to build the report PDF
 - The three implementations available (see [SETUP.md](SETUP.md) if `dpmm` / `synthcity_standalone` are not in the repo)
 
 ### 2. One-time setup
@@ -58,7 +57,6 @@ This will:
 
 1. Run an ε-sweep (default: ε ∈ {0.1, 0.5, 1.0, 2.0, 5.0, 10.0}, 5 seeds, 3 implementations).
 2. Generate all figures and tables from the sweep results.
-3. Compile `outputs/report.pdf`.
 
 **Output locations:**
 
@@ -67,18 +65,17 @@ This will:
 | Synthetic CSVs + result JSONs | `results/eps_sweep/<dataset>/` |
 | Figures (PDF) | `outputs/figures/` |
 | Tables (LaTeX) | `outputs/tables/` |
-| Report PDF | `outputs/report.pdf` |
 
 `<dataset>` is taken from the schema’s `"dataset"` field, or from the schema filename if `dataset` is missing.
 
 ### 5. Optional flags
 
-- **Regenerate only figures/tables/report** (no new sweep; use existing result JSONs):
+- **Regenerate only figures and tables** (no new sweep; use existing result JSONs):
   ```bash
   python run_full_pipeline.py --schema schemas/my_schema.json --data data/my_data.csv \
     --skip-sweep --results-dir results/eps_sweep/<dataset>
   ```
-- **Recompute metrics** from existing CSVs (e.g. after adding a new metric), then figures + report:
+- **Recompute metrics** from existing CSVs (e.g. after adding a new metric), then figures and tables:
   ```bash
   python run_full_pipeline.py --schema schemas/my_schema.json --data data/my_data.csv \
     --skip-sweep --refresh-metrics --results-dir results/eps_sweep/<dataset>
@@ -98,13 +95,12 @@ This will:
 | Schema JSON | `--schema` (e.g. `schemas/my_schema.json`) | Column types, bounds, targets, sensitive attribute, dataset name |
 | Dataset CSV | `--data` (e.g. `data/my_data.csv`) | Training data for synthesis and metric evaluation |
 
-The pipeline produces synthetic data, metrics (utility, survival, privacy, compliance), figures, tables, and the report PDF without further input.
+The pipeline produces synthetic data, metrics (utility, survival, privacy, compliance), figures, and tables without further input.
 
 ---
 
 ## More detail
 
 - **Full setup** (including dpmm, SynthCity, schema-generator): [SETUP.md](SETUP.md)
-- **Report structure and RQs**: [outputs/README_report.md](outputs/README_report.md)
+- **Figures and tables**: [outputs/README_report.md](outputs/README_report.md)
 - **Schema validation**: `python schema_validator.py --help`
-- **SynthCity implementation gap** (event column collapse / attribute inference): [docs/SYNTHCITY_IMPLEMENTATION_GAP.md](docs/SYNTHCITY_IMPLEMENTATION_GAP.md)
