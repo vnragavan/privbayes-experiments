@@ -65,5 +65,7 @@ schemas/*.json
 schemas/schema_generator.py
 schemas/schema_validator.py
 !schemas/.gitkeep
+!schemas/lung_schema.json
 data/*
 !data/.gitkeep
+!data/lung_clean.csv
