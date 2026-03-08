@@ -36,7 +36,7 @@ If the repo does not include the dpmm or SynthCity packages, follow [SETUP.md](S
 **What is `sensitive_attributes`?**  
 If you open a schema (e.g. `schemas/lung_schema.json`) you’ll see an optional field `"sensitive_attributes": ["status"]`. This tells the pipeline **which column to use for the attribute-inference privacy metric**: we train a classifier on synthetic data to predict that column from the rest, then measure AUC on real data. High AUC means the synthetic data preserves the relationship and inference risk is higher. You don’t have to set it: if `sensitive_attributes` is omitted, the pipeline uses `target_spec.primary_target` (e.g. the event column in survival schemas). For the example lung schema, `"status"` is the binary event (e.g. 0 = censored, 1 = event), so it’s the natural choice for this metric.
 
-**If you don’t have a schema yet**, you can generate one from your CSV using the schema-generator (see [schema-generator/README.md](schema-generator/README.md)) or the project’s `schema_generator.py`, then validate:
+**If you don’t have a schema yet**, you can generate one from your CSV using the project’s `schema_generator.py`, then validate:
 
 ```bash
 python schema_validator.py schemas/my_schema.json data/my_data.csv
