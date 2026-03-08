@@ -46,13 +46,30 @@ python analysis/generate_all.py \
   --data "$DATA"
 
 echo ""
+echo "=== 3a. Adapter ablation — LaTeX tables + figure ==="
+python experiments/generate_adapter_ablation_artifacts.py \
+  --schema "$SCHEMA" \
+  --data "$DATA" \
+  --tables-dir "$TABLES_DIR" \
+  --figures-dir "$FIGURES_DIR"
+
+echo ""
+echo "=== 3b. Adapter ablation metrics — CSV tables ==="
+ABLATION_METRICS_DIR="outputs/ablation_metrics"
+mkdir -p "$ABLATION_METRICS_DIR"
+python experiments/run_adapter_ablation_example.py \
+  --schema "$SCHEMA" \
+  --data "$DATA" \
+  --out-dir "$ABLATION_METRICS_DIR"
+
+echo ""
 if [[ -f "$REPORT_DIR/report.tex" ]]; then
-  echo "=== 3. Compile report PDF ==="
+  echo "=== 4. Compile report PDF ==="
   for _ in 1 2; do
     pdflatex -interaction=nonstopmode -output-directory "$REPORT_DIR" "$REPORT_DIR/report.tex"
   done
   echo "Done. Results: $RESULTS_DIR | Figures: $FIGURES_DIR | Tables: $TABLES_DIR | Report: $REPORT_DIR/report.pdf"
 else
-  echo "=== 3. Report (skipped; report.tex not in repo) ==="
+  echo "=== 4. Report (skipped; report.tex not in repo) ==="
   echo "Done. Results: $RESULTS_DIR | Figures: $FIGURES_DIR | Tables: $TABLES_DIR"
 fi

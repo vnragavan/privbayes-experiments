@@ -710,48 +710,11 @@ def privacy_metrics(real_df: pd.DataFrame, synth_df: pd.DataFrame) -> dict:
     return {"mia": mia, "nndr": nndr}
 
 
-# ── Constraint metrics ─────────────────────────────────────────────
+# ── Constraint metrics (use validator for schema-consistent event vs time breakdown) ──
 
 def constraint_metrics(synth_df: pd.DataFrame, schema: dict) -> dict:
-    constraints = schema.get("constraints", {})
-    n = len(synth_df)
-    violations = pd.Series(False, index=synth_df.index)
-    col_results   = {}
-    cross_results = {}
-
-    for col, spec in constraints.get("column_constraints", {}).items():
-        if col not in synth_df.columns:
-            continue
-        mask = pd.Series(False, index=synth_df.index)
-        vals = pd.to_numeric(synth_df[col], errors="coerce")
-        if "min_exclusive" in spec and spec["min_exclusive"] is not None:
-            mask |= vals <= float(spec["min_exclusive"])
-        if "min" in spec and spec["min"] is not None:
-            mask |= vals < float(spec["min"])
-        if "max" in spec and spec["max"] is not None:
-            mask |= vals > float(spec["max"])
-        col_results[col] = float(mask.mean())
-        violations |= mask
-
-    for c in constraints.get("cross_column_constraints", []):
-        if c.get("type") == "survival_pair":
-            ec      = c.get("event_col")
-            tc      = c.get("time_col")
-            allowed = c.get("event_allowed_values", [0, 1])
-            name    = c.get("name", "survival_validity")
-            if ec in synth_df.columns and tc in synth_df.columns:
-                mask = (~synth_df[ec].isin(allowed) |
-                        (pd.to_numeric(synth_df[tc], errors="coerce") <= 0))
-                cross_results[name] = float(mask.mean())
-                violations |= mask
-
-    return {
-        "overall_violation_rate":        float(violations.mean()),
-        "n_records_total":               n,
-        "n_records_with_any_violation":  int(violations.sum()),
-        "column_constraints":            col_results,
-        "cross_column_constraints":      cross_results,
-    }
+    from metrics.constraint.validator import constraint_violation_summary
+    return constraint_violation_summary(synth_df, schema)
 
 
 # ── Performance (estimated from CSV file size) ─────────────────────
@@ -778,19 +741,11 @@ def compute_metrics_for_csv(csv_path: Path,
                              epsilon: float) -> dict:
     synth_df = pd.read_csv(csv_path)
 
-    # Clip numeric columns to schema bounds (same as wrapper does)
-    pb = schema.get("public_bounds", {})
-    ct = schema.get("column_types", {})
-    for col, bv in pb.items():
-        if col not in synth_df.columns:
-            continue
-        if ct.get(col) not in ("continuous", "integer"):
-            continue
-        lo, hi = get_bounds(bv)
-        if lo is not None and hi is not None:
-            synth_df[col] = pd.to_numeric(
-                synth_df[col], errors="coerce"
-            ).clip(float(lo), float(hi))
+    # Normalize to schema so evaluation is consistent with run_experiment path
+    from adapters.schema_normalization import normalize_to_schema_output
+    synth_df = normalize_to_schema_output(
+        synth_df, schema, fit_columns=list(real_df.columns),
+    )
 
     result = {
         "implementation": impl,
@@ -833,7 +788,7 @@ def compute_metrics_for_csv(csv_path: Path,
         )
         attr_target = get_attribute_inference_target(schema)
         result["privacy"]["attribute_inference"] = safe(
-            attribute_inference_auc, real_df, synth_df, attr_target
+            attribute_inference_auc, real_df, synth_df, attr_target, schema
         )
 
     # Constraints

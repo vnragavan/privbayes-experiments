@@ -11,6 +11,36 @@ from pandas.api.types import is_integer_dtype, is_numeric_dtype, is_bool_dtype
 
 SMOOTH: float = 1e-8  # additive smoothing for probabilities
 
+
+def _constraint_aware_clip_bounds(pb_lo, pb_hi, col_spec, column_type):
+    """
+    Compute (lo, hi) for clipping so output satisfies schema column_constraints.
+    Used by schema-native sample() to enforce min_exclusive, min, max, max_exclusive.
+    """
+    lo, hi = pb_lo, pb_hi
+    if col_spec:
+        if col_spec.get("min_exclusive") is not None:
+            x = col_spec["min_exclusive"]
+            if column_type == "integer":
+                lo = max(lo, x + 1) if lo is not None else x + 1
+            else:
+                eps = 1e-9 if hi is None or hi > x + 1 else (float(hi) - x) / 2
+                lo = max(lo, x + eps) if lo is not None else x + eps
+        if col_spec.get("min") is not None:
+            x = col_spec["min"]
+            lo = max(lo, x) if lo is not None else x
+        if col_spec.get("max") is not None:
+            x = col_spec["max"]
+            hi = min(hi, x) if hi is not None else x
+        if col_spec.get("max_exclusive") is not None:
+            x = col_spec["max_exclusive"]
+            if column_type == "integer":
+                hi = min(hi, x - 1) if hi is not None else x - 1
+            else:
+                hi = min(hi, x - 1e-9) if hi is not None else x - 1e-9
+    return lo, hi
+
+
 # ---- Minimal "register" shim for compatibility ----
 
 def register(*args, **kwargs):
@@ -1446,7 +1476,30 @@ class PrivBayesSynthesizerEnhanced:
                 row_probs = probs[keys]
                 picks = self._sample_categorical_rows(row_probs, rng)
             codes[c] = picks
-        return self._decode(codes, n, rng)
+        df = self._decode(codes, n, rng)
+        return self._clip_to_schema_constraints(df)
+
+    def _clip_to_schema_constraints(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Enforce schema column_constraints (min_exclusive, min, max, max_exclusive) on numeric columns."""
+        schema = getattr(self, "_schema", None)
+        if schema is None:
+            return df
+        pb = schema.get("public_bounds", {})
+        ct = schema.get("column_types", {})
+        col_c = (getattr(self, "_schema_constraints") or {}).get("column_constraints", {})
+        for col in list(df.columns):
+            if ct.get(col) not in ("continuous", "integer"):
+                continue
+            bv = pb.get(col)
+            if bv is None:
+                continue
+            pb_lo = bv.get("min") if isinstance(bv, dict) else (bv[0] if isinstance(bv, (list, tuple)) else None)
+            pb_hi = bv.get("max") if isinstance(bv, dict) else (bv[1] if isinstance(bv, (list, tuple)) else None)
+            col_spec = col_c.get(col)
+            lo, hi = _constraint_aware_clip_bounds(pb_lo, pb_hi, col_spec, ct.get(col))
+            if lo is not None and hi is not None and lo <= hi:
+                df[col] = pd.to_numeric(df[col], errors="coerce").clip(float(lo), float(hi))
+        return df
 
     def _decode(self, codes: Dict[str, np.ndarray], n: int, rng: np.random.Generator) -> pd.DataFrame:
         """Convert integer codes back to original data types and value ranges.

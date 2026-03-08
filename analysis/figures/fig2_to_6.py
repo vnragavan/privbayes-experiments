@@ -508,7 +508,7 @@ def fig5_privacy_risk(results_dir="results/eps_sweep",
     _safe_log_x(ax)
     ax.set_ylim(0.45, 1.0)
     ax.set_xlabel(r"$\varepsilon$")
-    ax.set_ylabel("MIA AUC")
+    ax.set_ylabel("MIA AUC ↓")
     ax.set_title("Membership Inference Attack AUC")
     ax.legend(fontsize=7)
 
@@ -520,7 +520,7 @@ def fig5_privacy_risk(results_dir="results/eps_sweep",
     ax2.axhline(1.0, color="gray", ls="--", lw=1, label="Ideal (ratio=1)")
     _safe_log_x(ax2)
     ax2.set_xlabel(r"$\varepsilon$")
-    ax2.set_ylabel("NNDR mean ratio")
+    ax2.set_ylabel("NNDR mean ratio ↓")
     ax2.set_title("Nearest-Neighbour Distance Ratio")
     ax2.legend(fontsize=7)
 
@@ -534,7 +534,7 @@ def fig5_privacy_risk(results_dir="results/eps_sweep",
     _safe_log_x(ax3)
     ax3.set_ylim(0.25, 1.0)
     ax3.set_xlabel(r"$\varepsilon$")
-    ax3.set_ylabel("Attr. inf. AUC")
+    ax3.set_ylabel("Attr. inf. AUC ↓")
     ax3.set_title("Attribute Inference AUC")
     ax3.legend(fontsize=7)
 
@@ -666,19 +666,19 @@ def fig6_performance(results_dir="results/eps_sweep",
             ax.yaxis.grid(True, alpha=0.3, zorder=0)
             ax.set_axisbelow(True)
 
-        # Legend above the panels
+        fig.suptitle("Performance across privacy budget", y=1.02)
+        # Legend below the title, above the panels
         if present_impls:
             handles, labels = axes[0].get_legend_handles_labels()
             fig.legend(handles, labels, fontsize=7, loc="upper center",
-                       bbox_to_anchor=(0.5, 1.02), ncol=len(present_impls), frameon=True)
+                       bbox_to_anchor=(0.5, 0.98), ncol=len(present_impls), frameon=True)
         fig.text(0.5, -0.02, NONCOMPLIANT_FOOTNOTE,
                  ha="center", fontsize=7.5, style="italic")
         fig.text(0.5, -0.05,
                  f"Mean ± 95% CI across {n_seeds} seeds per ε. "
                  f"Epsilons: {', '.join(str(e) for e in epsilons_used)}.",
                  ha="center", fontsize=7, color="gray")
-        fig.suptitle("Performance across privacy budget", y=1.02)
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0.02, 1, 0.96])
         save_figure(fig, out)
         plt.close(fig)
         return

@@ -57,7 +57,20 @@ def cox_hr_bias(real_df, synth_df, duration_col,
 
 def tstr_cindex(synth_df, test_real_df, duration_col,
                  event_col, covariates) -> float:
+    """
+    Train Cox on synthetic data, score on real holdout. Returns concordance index.
+    Requires synthetic event column to have both 0 and 1; otherwise Cox cannot be fitted.
+    """
     try:
+        if event_col not in synth_df.columns or duration_col not in synth_df.columns:
+            raise ValueError("missing survival columns in synthetic data")
+        evt = pd.to_numeric(synth_df[event_col], errors="coerce")
+        evt_valid = evt.dropna()
+        if len(evt_valid) < 2 or evt_valid.nunique() < 2:
+            raise ValueError(
+                "synthetic event column has only one value (Cox not fitted); "
+                "TSTR C-index requires both events and non-events in synthetic data"
+            )
         cph = _fit_cox(synth_df, duration_col, event_col, covariates)
         cols = [c for c in covariates
                 if c in test_real_df.columns
@@ -68,5 +81,8 @@ def tstr_cindex(synth_df, test_real_df, duration_col,
         sub[event_col] = pd.to_numeric(sub[event_col], errors="coerce").astype(int)
         sub = sub.dropna()
         return float(cph.score(sub, scoring_method="concordance_index"))
-    except Exception:
-        return float("nan")
+    except Exception as e:
+        # Re-raise so metrics.report safe() can store the error message
+        if isinstance(e, ValueError):
+            raise
+        raise RuntimeError(f"TSTR C-index failed: {e}") from e

@@ -225,7 +225,7 @@
           0,
           1
         ],
-        "time_min_exclusive": 0
+        "time_min_inclusive": 0
       }
     ],
     "row_group_constraints": []

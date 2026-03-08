@@ -32,6 +32,7 @@ from metrics.privacy.attribute_inference import (
     get_attribute_inference_target,
 )
 from metrics.constraint.validator import constraint_violation_summary
+from adapters.schema_normalization import normalize_to_schema_output
 
 
 def safe(fn, *args, **kwargs):
@@ -72,6 +73,12 @@ def compute_metrics(
     strata_col       : optional column for stratified KM
     taus             : list of RMST horizons; defaults to schema tau if set
     """
+    synth_df = normalize_to_schema_output(
+        synth_df,
+        schema,
+        fit_columns=list(real_df.columns),
+    )
+
     # --- Extract survival columns and privacy targets from schema ---
     ts = schema.get("target_spec", {})
     event_col = ts.get("primary_target")
@@ -110,7 +117,7 @@ def compute_metrics(
                 mixed_association_similarity, real_df, synth_df, schema),
             "wasserstein": safe(mean_wasserstein_per_column, real_df, synth_df, schema),
             "tstr": (safe(tstr_classification, synth_df, test_real_df,
-                          event_col, covariates)
+                          event_col, covariates, schema)
                      if test_real_df is not None and event_col else None),
             "coverage": safe(categorical_coverage, synth_df, schema),
             "unknown_token_rate": safe(unknown_token_rate, synth_df),
@@ -155,7 +162,7 @@ def compute_metrics(
                           real_df, synth_df, numeric_cols)
                      if numeric_cols else None),
             "attribute_inference": (safe(attribute_inference_auc,
-                                         real_df, synth_df, attr_inference_target)
+                                         real_df, synth_df, attr_inference_target, schema)
                                     if attr_inference_target else None),
         },
 

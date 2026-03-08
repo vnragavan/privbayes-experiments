@@ -44,9 +44,6 @@ def run_one(name, wrapper, train_df, test_df, holdout_df,
         output_dir, f"{name}_eps{epsilon}_seed{seed}.csv")
     synth_df.to_csv(out_path, index=False)
 
-    if "age" in synth_df.columns:
-        print(f"  [debug] age range at constraint check: {synth_df['age'].min()} - {synth_df['age'].max()}")
-
     metrics = compute_metrics(
         real_df=train_df,
         synth_df=synth_df,

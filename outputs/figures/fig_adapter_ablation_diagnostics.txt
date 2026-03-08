@@ -1,0 +1,4 @@
+Adapter ablation figure: metrics that were all-NaN (bar shown at 0.01).
+Possible causes: TSTR AUC = single-class synthetic labels; MIA/KM-L1 = evaluation failure.
+
+  DPMM adapted: TSTR AUC

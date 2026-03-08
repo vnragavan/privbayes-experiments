@@ -1,0 +1,5 @@
+implementation,condition,n_columns,n_dtype_mismatches,mismatch_rate,binary_mismatch_count,categorical_mismatch_count,ordinal_mismatch_count,integer_mismatch_count,continuous_mismatch_count
+dpmm,adapted,9,0,0.0,0,0,0,0,0
+dpmm,raw,9,1,0.1111111111111111,0,1,0,0,0
+synthcity,adapted,9,0,0.0,0,0,0,0,0
+synthcity,raw,9,1,0.1111111111111111,0,1,0,0,0

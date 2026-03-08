@@ -40,13 +40,15 @@ def evaluate_cross_column_constraints(synth_df,
             event_col = constraint.get("event_col")
             time_col = constraint.get("time_col")
             allowed = constraint.get("event_allowed_values", [0, 1])
-            time_min_exc = constraint.get("time_min_exclusive", 0)
             if event_col in synth_df.columns and time_col in synth_df.columns:
-                mask = (
-                    ~synth_df[event_col].isin(allowed) |
-                    (pd.to_numeric(synth_df[time_col], errors="coerce")
-                     <= time_min_exc)
-                )
+                evt = pd.to_numeric(synth_df[event_col], errors="coerce")
+                time_vals = pd.to_numeric(synth_df[time_col], errors="coerce")
+                if "time_min_inclusive" in constraint and constraint["time_min_inclusive"] is not None:
+                    time_ok = time_vals >= constraint["time_min_inclusive"]
+                else:
+                    time_min_exc = constraint.get("time_min_exclusive", 0)
+                    time_ok = time_vals > time_min_exc
+                mask = ~evt.isin(allowed) | ~time_ok
                 per[name] = float(mask.mean())
 
     overall = float(np.mean(list(per.values()))) if per else float("nan")
@@ -74,6 +76,10 @@ def constraint_violation_summary(synth_df, schema: dict) -> dict:
         if "max" in spec and spec["max"] is not None:
             any_viol |= vals > spec["max"]
 
+    # Per-cause breakdown for survival_pair: event vs time
+    survival_event_viol = pd.Series(False, index=synth_df.index)
+    survival_time_viol = pd.Series(False, index=synth_df.index)
+
     for constraint in cross_c:
         ctype = constraint.get("type")
         if ctype == "survival_pair":
@@ -81,9 +87,18 @@ def constraint_violation_summary(synth_df, schema: dict) -> dict:
             time_col = constraint.get("time_col")
             allowed = constraint.get("event_allowed_values", [0, 1])
             if event_col in synth_df.columns and time_col in synth_df.columns:
-                any_viol |= ~synth_df[event_col].isin(allowed)
-                any_viol |= pd.to_numeric(
-                    synth_df[time_col], errors="coerce") <= 0
+                evt = pd.to_numeric(synth_df[event_col], errors="coerce")
+                time_vals = pd.to_numeric(synth_df[time_col], errors="coerce")
+                event_bad = ~evt.isin(allowed)
+                any_viol |= event_bad
+                survival_event_viol |= event_bad
+                if "time_min_inclusive" in constraint and constraint["time_min_inclusive"] is not None:
+                    time_bad = time_vals < constraint["time_min_inclusive"]
+                else:
+                    time_min_exc = constraint.get("time_min_exclusive", 0)
+                    time_bad = time_vals <= time_min_exc
+                any_viol |= time_bad
+                survival_time_viol |= time_bad
 
     return {
         "overall_violation_rate": float(any_viol.mean()),
@@ -91,4 +106,8 @@ def constraint_violation_summary(synth_df, schema: dict) -> dict:
         "n_records_with_any_violation": int(any_viol.sum()),
         "column_constraints": col_result["per_constraint"],
         "cross_column_constraints": cross_result["per_constraint"],
+        "survival_pair_event_violation_rate": float(survival_event_viol.mean()),
+        "survival_pair_time_violation_rate": float(survival_time_viol.mean()),
+        "n_survival_pair_event_violations": int(survival_event_viol.sum()),
+        "n_survival_pair_time_violations": int(survival_time_viol.sum()),
     }

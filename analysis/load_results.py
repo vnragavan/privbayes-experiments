@@ -62,6 +62,8 @@ def _flatten_result(impl_result: dict, impl: str, epsilon: float, seed: int) -> 
     row["attr_inference_auc"] = _safe_get(r, "privacy", "attribute_inference", "auc")
 
     row["constraint_viol"] = _safe_get(r, "constraints", "overall_violation_rate")
+    row["constraint_viol_event"] = _safe_get(r, "constraints", "survival_pair_event_violation_rate")
+    row["constraint_viol_time"] = _safe_get(r, "constraints", "survival_pair_time_violation_rate")
     row["ledger_complete"] = _safe_get(r, "compliance", "ledger_completeness")
     row["composition_gap"] = _safe_get(r, "compliance", "composition", "gap_flag")
 

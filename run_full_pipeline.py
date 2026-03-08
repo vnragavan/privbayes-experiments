@@ -6,7 +6,8 @@ One-shot script that runs the full experiment workflow:
   1. Epsilon sweep (run_sweep) → synthetic CSVs + result JSONs
   2. [Optional] Refresh metrics from CSVs (compute_sweep_metrics)
   3. Generate all figures and tables (generate_all)
-  4. [Optional] Compile report PDF (pdflatex) only if outputs/report.tex exists (not in repo)
+  4. Adapter ablation → tab_adapter_*.tex, fig_adapter_ablation.pdf, and outputs/ablation_metrics/*.csv (use --skip-ablation to omit)
+  5. [Optional] Compile report PDF (pdflatex) only if outputs/report.tex exists (not in repo)
 
 Usage:
   # Full pipeline: sweep + figures/tables + report (results go to results/eps_sweep/<dataset from schema>)
@@ -101,6 +102,24 @@ def main() -> int:
         default=None,
         help="Override results directory (default: <output-dir>/<dataset from schema>); e.g. results/eps_sweep/lung_clean",
     )
+    parser.add_argument(
+        "--skip-ablation",
+        action="store_true",
+        help="Skip the adapter ablation (LaTeX tables, figure, and ablation_metrics CSV tables).",
+    )
+    parser.add_argument(
+        "--ablation-n-runs",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Number of runs for adapter ablation figure (default: 1). Use 3+ for visible error bars / CI.",
+    )
+    parser.add_argument(
+        "--ablation-error-bar",
+        choices=["se", "95ci"],
+        default="se",
+        help="Adapter ablation figure: se = ±1 SE, 95ci = 95%% CI (default: se). Only visible when --ablation-n-runs >= 2.",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent
@@ -189,7 +208,42 @@ def main() -> int:
     if not ok:
         return 1
 
-    # ── 4. Compile report PDF (optional; report.tex not in repo) ─────────
+    # ── 4. Adapter ablation (optional) ───────────────────────────────────
+    if not args.skip_ablation:
+        ablation_cmd = [
+            sys.executable,
+            str(repo_root / "experiments" / "generate_adapter_ablation_artifacts.py"),
+            "--schema", str(schema_path),
+            "--data", str(data_path),
+            "--tables-dir", str(tables_dir),
+            "--figures-dir", str(figures_dir),
+            "--n-runs", str(args.ablation_n_runs),
+            "--error-bar", args.ablation_error_bar,
+        ]
+        ok = _run(
+            ablation_cmd,
+            "Step 4a: Adapter ablation — LaTeX tables + figure (generate_adapter_ablation_artifacts.py)",
+            env=run_env,
+        )
+        if not ok:
+            return 1
+        # 4b: Adapter ablation metrics (CSV tables; optional wrong_schema via env or script default)
+        ablation_metrics_dir = repo_root / "outputs" / "ablation_metrics"
+        ok = _run(
+            [
+                sys.executable,
+                str(repo_root / "experiments" / "run_adapter_ablation_example.py"),
+                "--schema", str(schema_path),
+                "--data", str(data_path),
+                "--out-dir", str(ablation_metrics_dir),
+            ],
+            "Step 4b: Adapter ablation metrics — CSV tables (run_adapter_ablation_example.py)",
+            env=run_env,
+        )
+        if not ok:
+            return 1
+
+    # ── 5. Compile report PDF (optional; report.tex not in repo) ─────────
     report_tex = report_dir / "report.tex"
     if report_tex.exists():
         for run_num in (1, 2):
@@ -200,7 +254,7 @@ def main() -> int:
                     "-output-directory", str(report_dir),
                     str(report_tex),
                 ],
-                f"Step 4: Compile report PDF (pdflatex run {run_num}/2)",
+                f"Step 5: Compile report PDF (pdflatex run {run_num}/2)",
             )
             if not ok:
                 return 1

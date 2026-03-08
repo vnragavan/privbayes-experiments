@@ -1,4 +1,11 @@
+"""
+Thin adapter so CRN/PrivBayes can be used via the same interface as DPMM and SynthCity.
+
+Constraint enforcement is done inside the schema-native implementation (PrivBayesSynthesizerEnhanced);
+this wrapper only delegates fit/sample/validate_output/privacy_report.
+"""
 from implementations.crn_privbayes import PrivBayesSynthesizerEnhanced
+
 
 class CRNWrapper:
     def __init__(self, epsilon, delta=1e-6, seed=0,
@@ -24,27 +31,7 @@ class CRNWrapper:
     def sample(self, n):
         if self._model is None:
             raise RuntimeError("Call fit() first.")
-        synth_df = self._model.sample(n)
-
-        # Clip numeric columns to schema bounds (original scale)
-        schema = getattr(self._model, '_schema', None)
-        if schema is not None:
-            import pandas as pd
-            pb = schema.get('public_bounds', {})
-            ct = schema.get('column_types', {})
-            for col, bv in pb.items():
-                if col not in synth_df.columns:
-                    continue
-                if ct.get(col) not in ('continuous', 'integer'):
-                    continue
-                lo = bv.get('min') if isinstance(bv, dict) else bv[0]
-                hi = bv.get('max') if isinstance(bv, dict) else bv[1]
-                if lo is not None and hi is not None:
-                    synth_df[col] = pd.to_numeric(
-                        synth_df[col], errors='coerce'
-                    ).clip(float(lo), float(hi))
-
-        return synth_df
+        return self._model.sample(n)
 
     def validate_output(self, synth_df):
         if self._model is None:
