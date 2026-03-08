@@ -89,6 +89,27 @@ This will:
     --results-dir results/eps_sweep/my_custom_name
   ```
 
+### 6. Adapter ablation metrics
+
+To compare **raw** vs **schema-adapted** runs for SynthCity and DPMM (schema interpretation, output structure, and benchmark metrics), run:
+
+```bash
+python experiments/run_adapter_ablation_example.py --schema schemas/my_schema.json --data data/my_data.csv
+```
+
+- **Multiple runs with confidence intervals:** use `--n-runs` (e.g. `--n-runs 5`). The script then writes `adapter_ablation_summary.csv` with mean, std, SE, and 95% CI per benchmark metric.
+- **Optional:** `--wrong-schema` to include a wrong-schema condition; `--out-dir` to change the output directory (default: `outputs/ablation_metrics`).
+
+**Outputs** (in `outputs/ablation_metrics/` by default):
+
+| File | Description |
+|------|-------------|
+| `table_schema_interpretation.csv` | Fit-time dtype mismatches (columns, mismatch counts/rates) |
+| `table_output_structure.csv` | Output diagnostics (invalid rates, out-of-bounds) |
+| `table_benchmark.csv` | Benchmark metrics (utility, privacy, survival, constraints); means when `--n-runs` > 1 |
+| `adapter_ablation_all_metrics.csv` | Flat CSV of all metrics (one row per run × implementation × condition) |
+| `adapter_ablation_summary.csv` | Only when `--n-runs` > 1: mean, std, SE, 95% CI per benchmark metric |
+
 ---
 
 ## Summary of inputs and outputs
