@@ -121,10 +121,5 @@ python experiments/run_adapter_ablation_example.py --schema schemas/my_schema.js
 
 The pipeline produces synthetic data, metrics (utility, survival, privacy, compliance), figures, and tables without further input.
 
----
 
-## More detail
 
-- **Full setup** (including dpmm, SynthCity, schema-generator): [SETUP.md](SETUP.md)
-- **Figures and tables**: [outputs/README_report.md](outputs/README_report.md)
-- **Schema validation**: `python schema_validator.py --help`
