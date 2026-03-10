@@ -1,6 +1,6 @@
 # schema_generator.py
 
-**Version 1.6** — DP-aware schema generator for PrivBayes synthesis experiments.
+DP-aware schema generator for PrivBayes synthesis experiments.
 
 Generates a `schema.json` from a CSV file that drives all downstream components: `CRNPrivBayes`, the DPMM adapter, the SynthCity wrapper, the metrics pipeline, and `run_experiment.py`. It is the single authoritative source of truth about your dataset's domain, types, sensitivity bounds, and PrivBayes algorithm parameters.
 
