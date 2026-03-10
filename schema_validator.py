@@ -24,25 +24,28 @@ USAGE:
 
 WHAT IT CHECKS:
   Schema-only:
-    1. column_types present and all types are recognised
-    2. Every numeric column has public_bounds (min < max)
-    3. Every categorical/ordinal/binary column has public_categories
-    4. Binary columns have exactly 2 categories
-    5. Mutual exclusivity: no column in both public_bounds and public_categories
-       (numeric → bounds only; discrete → categories only; overlap triggers WARN)
-    6. target_spec is complete (kind, targets, primary_target)
-    7. Survival pair has cross_column_constraint defined
-    8. Survival pair has tau defined
-    9. Provenance block present and documents bound sources
+    1.  column_types present and all types are recognised
+    2.  Every numeric column has public_bounds (min < max)
+    3.  Every categorical/ordinal/binary column has public_categories
+    4.  Binary columns have exactly 2 categories
+    5.  Mutual exclusivity: no column in both public_bounds and public_categories
+        (numeric → bounds only; discrete → categories only; overlap triggers WARN)
+    6.  target_spec is complete (kind, targets, primary_target)
+    7.  Survival pair has cross_column_constraint defined
+    8.  Survival pair has tau defined
+    9.  Provenance block present and documents bound sources
     10. Suspicious tight bounds flagged (possible data-derived)
+    11. PrivBayes extensions block integrity (max_parents, per-column
+        n_bins_total, nan_bin_index consistency, forbidden_parents columns)
 
   Cross-validation against data:
-    11. Every schema column exists in the dataframe
-    12. Every dataframe column exists in the schema
-    13. Categorical columns — schema categories match actual values
-    14. Numeric columns — observed range fits within declared bounds
-    15. Binary columns — exactly two unique values in data
-    16. Column types consistent with pandas dtype
+    12. Every schema column exists in the dataframe
+    13. Every dataframe column exists in the schema
+    14. Categorical columns — schema categories match actual values
+        (float-upcast NaN columns handled correctly: 0.0 matches 0)
+    15. Numeric columns — observed range fits within declared bounds
+    16. Binary columns — exactly two unique values in data
+    17. Column types consistent with pandas dtype
 
 EXIT CODES:
   0 — passed (possibly with warnings)
@@ -88,10 +91,31 @@ def _get_bounds(bv) -> Tuple[Optional[float], Optional[float]]:
 
 
 def _is_round(v: float) -> bool:
-    """True if v is a round number (divisible by 5 or a power of 10)."""
+    """True if v is a round number (divisible by 5).
+
+    Uses round() before the modulo to avoid IEEE 754 float precision
+    artefacts (e.g. 100.0 % 5 returning 4.999e-14 instead of 0.0).
+    Divisibility by 10 and 100 are implied by divisibility by 5.
+    """
     if v == 0:
         return True
-    return (v % 5 == 0) or (v % 10 == 0) or (v % 100 == 0)
+    return round(v, 8) % 5 == 0
+
+
+def _norm_cat_value(v) -> object:
+    """Normalise a category value for comparison.
+
+    Converts float-encoded integers (0.0 -> 0, 1.0 -> 1) to int so that
+    schema declarations using integers match pandas float64 columns that
+    were upcast due to NaN values.  Non-integer floats and strings are
+    left as-is (float or str respectively).
+    """
+    try:
+        f = float(v)
+        i = int(f)
+        return i if f == i else f
+    except (ValueError, TypeError):
+        return str(v)
 
 
 # ─── Schema-only validation ────────────────────────────────────────
@@ -189,13 +213,13 @@ def validate(schema: dict, strict: bool = True) -> List[str]:
                     f"FAIL public_categories['{col}'] has fewer than "
                     f"2 values: {cats}. "
                     f"A categorical column must have at least 2 categories.")
-            if t == "binary":
-                if isinstance(cats, list) and len(cats) != 2:
-                    errors.append(
-                        f"FAIL binary column '{col}' must have exactly "
-                        f"2 categories, got {len(cats)}: {cats}. "
-                        f"If there are more valid values, use type "
-                        f"'categorical' instead.")
+            elif t == "binary" and len(cats) != 2:
+                # Only reachable when len >= 2; avoids double-firing for len < 2
+                errors.append(
+                    f"FAIL binary column '{col}' must have exactly "
+                    f"2 categories, got {len(cats)}: {cats}. "
+                    f"If there are more valid values, use type "
+                    f"'categorical' instead.")
 
     # ── 5. Mutual exclusivity: numeric → bounds only, discrete → categories only ─
     both = set(public_bounds.keys()) & set(public_cats.keys())
@@ -389,6 +413,76 @@ def validate(schema: dict, strict: bool = True) -> List[str]:
             "Data-derived bounds weaken the DP guarantee:\n"
             + "\n".join(f"    {c}" for c in tight_cols))
 
+    # ── 11. PrivBayes extensions block (warning-level only) ────────
+    pb_ext = schema.get("extensions", {}).get("privbayes", {})
+    if pb_ext:
+        # max_parents must be a positive integer
+        mp = pb_ext.get("max_parents")
+        if mp is not None:
+            try:
+                mp_i = int(mp)
+                if mp_i < 1:
+                    warnings.append(
+                        f"WARN extensions.privbayes.max_parents={mp_i} is < 1. "
+                        f"CRN requires max_parents >= 1.")
+                elif mp_i > 5:
+                    warnings.append(
+                        f"WARN extensions.privbayes.max_parents={mp_i} is large. "
+                        f"CPT size grows as n_bins^max_parents — "
+                        f"values above 4 may cause memory or fit-time issues "
+                        f"on datasets with n < 1000.")
+            except (TypeError, ValueError):
+                warnings.append(
+                    f"WARN extensions.privbayes.max_parents='{mp}' is not an integer.")
+
+        # per-column discretization entries
+        per_col = pb_ext.get("discretization", {}).get("per_column", {})
+        for col, entry in per_col.items():
+            if col not in col_types:
+                warnings.append(
+                    f"WARN extensions.privbayes.discretization.per_column "
+                    f"contains '{col}' which is not in column_types.")
+                continue
+
+            n_bins       = entry.get("n_bins")
+            n_bins_total = entry.get("n_bins_total")
+            has_nan_bin  = entry.get("has_nan_bin", False)
+            nan_bin_idx  = entry.get("nan_bin_index")
+
+            # n_bins_total must equal n_bins + 1 when has_nan_bin is True
+            if n_bins is not None and n_bins_total is not None:
+                expected_total = n_bins + (1 if has_nan_bin else 0)
+                if n_bins_total != expected_total:
+                    warnings.append(
+                        f"WARN extensions.privbayes.discretization.per_column"
+                        f"['{col}']: n_bins_total={n_bins_total} but expected "
+                        f"{expected_total} (n_bins={n_bins} + "
+                        f"{'1 NaN bin' if has_nan_bin else '0 NaN bins'}). "
+                        f"CRN uses n_bins_total for sensitivity calculations.")
+
+            # nan_bin_index must equal n_bins when has_nan_bin is True
+            if has_nan_bin:
+                if nan_bin_idx is None:
+                    warnings.append(
+                        f"WARN extensions.privbayes.discretization.per_column"
+                        f"['{col}']: has_nan_bin=true but nan_bin_index is missing. "
+                        f"CRN will not know where to route missing values.")
+                elif n_bins is not None and nan_bin_idx != n_bins:
+                    warnings.append(
+                        f"WARN extensions.privbayes.discretization.per_column"
+                        f"['{col}']: nan_bin_index={nan_bin_idx} but expected "
+                        f"{n_bins} (= n_bins). "
+                        f"The NaN bin must always be the last bin slot.")
+
+        # forbidden_parents must reference known columns
+        forbidden = pb_ext.get("forbidden_parents", {})
+        for child, parents in forbidden.items():
+            for p in (parents or []):
+                if col_types and p not in col_types:
+                    warnings.append(
+                        f"WARN extensions.privbayes.forbidden_parents: "
+                        f"parent '{p}' of '{child}' is not in column_types.")
+
     # ── Hard failure ───────────────────────────────────────────────
     if errors and strict:
         raise SchemaValidationError(
@@ -474,8 +568,13 @@ def validate_against_data(schema: dict, df) -> List[str]:
     for col, cats in public_cats.items():
         if col not in df.columns:
             continue
-        actual   = set(str(v) for v in df[col].dropna().unique())
-        declared = set(str(v) for v in cats)
+        # Use _norm_cat_value on both sides to handle the common case where
+        # pandas upcasts an integer categorical column to float64 because it
+        # contains NaN values (e.g. ph.ecog with missingness reads as 0.0,
+        # 1.0, ... instead of 0, 1, ...).  Without normalisation, str(0.0)="0.0"
+        # vs str(0)="0" causes false FAIL for every value in the column.
+        actual   = set(_norm_cat_value(v) for v in df[col].dropna().unique())
+        declared = set(_norm_cat_value(v) for v in cats)
 
         in_data_not_declared = actual - declared
         in_declared_not_data = declared - actual
@@ -665,12 +764,22 @@ def validate_and_report(
         return False
 
     # Print summary
-    ds = schema.get("dataset", {})
-    if isinstance(ds, str):
-        ds = {"name": ds, "description": "—"}
+    # schema["dataset"] is a string in schema-generator output.
+    # After run_experiment.py patches it in memory it becomes
+    # {"n_records": N} — handle both so the validator works as a library too.
+    raw_ds = schema.get("dataset", {})
+    if isinstance(raw_ds, str):
+        ds_name        = raw_ds or "(unnamed)"
+        ds_description = schema.get("dataset_info", {}).get("description", "—")
+    elif isinstance(raw_ds, dict):
+        ds_name        = raw_ds.get("name") or raw_ds.get("dataset_name") or "(unnamed)"
+        ds_description = raw_ds.get("description", "—")
+    else:
+        ds_name        = "(unnamed)"
+        ds_description = "—"
     ts = schema.get("target_spec", {})
-    print(f"\n  Dataset       : {ds.get('name', '(unnamed)')}")
-    print(f"  Description   : {ds.get('description', '—')}")
+    print(f"\n  Dataset       : {ds_name}")
+    print(f"  Description   : {ds_description}")
 
     readiness = synthesis_readiness(schema)
     print(f"\n  Columns typed          : {readiness['n_columns_typed']}")

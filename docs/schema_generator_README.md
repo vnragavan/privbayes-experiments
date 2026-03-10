@@ -616,3 +616,24 @@ print("missing cols:", list(pb.get("missing_value_handling", {}).get("columns_af
 EOF
 ```
 
+To perform a **full validation against the code and the raw CSV**, use `schema_validator.py` after generating the schema. Run this from the repo root (ideally with the virtualenv activated so `pandas` is available):
+
+```bash
+python schema_validator.py schemas/your_schema.json data/your_dataset.csv
+```
+
+The validator checks:
+
+- Internal consistency of the JSON (types, domains, `target_spec`, `constraints`, provenance).
+- Mutual exclusivity between `public_bounds` and `public_categories` (numeric vs discrete columns).
+- That all columns in the CSV match the schema declarations and stay within the declared domains.
+
+You should see:
+
+- **`RESULT: PASS — schema is ready to guide synthesis`** for a usable schema.
+- Optional **`WARN`** lines for non-fatal issues (e.g. ordinal columns appearing in both `public_bounds` and `public_categories`, or bounds inferred directly from data). These are safe to run with but are worth cleaning up before publication by:
+  - Removing redundant `public_bounds` entries for discrete columns the generator already listed in `public_categories`.
+  - Replacing `provenance.bound_sources[col] = "inferred_from_data"` with a study-protocol citation if you have domain-knowledge bounds.
+
+Running the validator with both the schema and the CSV is the recommended final check before running `run_full_pipeline.py`.
+
