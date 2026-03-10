@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import traceback
+import copy
 from multiprocessing import Process, Queue
 
 import pandas as pd
@@ -90,6 +91,7 @@ def run_experiment(schema_path, data_path, epsilon=1.0,
 
     with open(schema_path) as f:
         schema = json.load(f)
+    schema = copy.deepcopy(schema)  # isolate in-memory patches from the on-disk original
 
     df = pd.read_csv(data_path)
 
@@ -98,6 +100,19 @@ def run_experiment(schema_path, data_path, epsilon=1.0,
         df, test_size=0.4, random_state=seed)
     test_df, holdout_df = train_test_split(
         temp_df, test_size=0.5, random_state=seed)
+
+    # Align schema n_records to train size so all backends accept the split.
+    # CRN reads schema["dataset"]["n_records"] (dict path, normal schema-generator
+    # output) and only falls back to schema["dataset_info"] when "dataset" is not
+    # a dict.  Patching only dataset_info has no effect on CRN.
+    n_train = len(train_df)
+    if isinstance(schema.get("dataset"), dict):
+        schema["dataset"]["n_records"] = n_train
+    else:
+        schema["dataset"] = {"n_records": n_train}
+    if schema.get("dataset_info") is None:
+        schema["dataset_info"] = {}
+    schema["dataset_info"]["n_records"] = n_train
 
     n = n_samples or len(train_df)
     impls = implementations or list(WRAPPERS.keys())

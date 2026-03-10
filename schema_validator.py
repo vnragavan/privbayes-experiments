@@ -28,19 +28,21 @@ WHAT IT CHECKS:
     2. Every numeric column has public_bounds (min < max)
     3. Every categorical/ordinal/binary column has public_categories
     4. Binary columns have exactly 2 categories
-    5. target_spec is complete (kind, targets, primary_target)
-    6. Survival pair has cross_column_constraint defined
-    7. Survival pair has tau defined
-    8. Provenance block present and documents bound sources
-    9. Suspicious tight bounds flagged (possible data-derived)
+    5. Mutual exclusivity: no column in both public_bounds and public_categories
+       (numeric → bounds only; discrete → categories only; overlap triggers WARN)
+    6. target_spec is complete (kind, targets, primary_target)
+    7. Survival pair has cross_column_constraint defined
+    8. Survival pair has tau defined
+    9. Provenance block present and documents bound sources
+    10. Suspicious tight bounds flagged (possible data-derived)
 
   Cross-validation against data:
-    10. Every schema column exists in the dataframe
-    11. Every dataframe column exists in the schema
-    12. Categorical columns — schema categories match actual values
-    13. Numeric columns — observed range fits within declared bounds
-    14. Binary columns — exactly two unique values in data
-    15. Column types consistent with pandas dtype
+    11. Every schema column exists in the dataframe
+    12. Every dataframe column exists in the schema
+    13. Categorical columns — schema categories match actual values
+    14. Numeric columns — observed range fits within declared bounds
+    15. Binary columns — exactly two unique values in data
+    16. Column types consistent with pandas dtype
 
 EXIT CODES:
   0 — passed (possibly with warnings)
@@ -195,22 +197,27 @@ def validate(schema: dict, strict: bool = True) -> List[str]:
                         f"If there are more valid values, use type "
                         f"'categorical' instead.")
 
-    # ── 5. Columns should not appear in both bounds and categories ─
+    # ── 5. Mutual exclusivity: numeric → bounds only, discrete → categories only ─
     both = set(public_bounds.keys()) & set(public_cats.keys())
+    if both:
+        warnings.append(
+            f"Schema is not mutually exclusive: {len(both)} column(s) appear in "
+            f"both public_bounds and public_categories. "
+            f"Numeric columns (continuous, integer) should appear only in "
+            f"public_bounds; discrete columns (binary, categorical, ordinal) "
+            f"only in public_categories. Remove the redundant entries to fix.")
     for col in both:
         ctype = col_types.get(col, "unknown")
         if ctype in CAT_TYPES:
             warnings.append(
-                f"WARN '{col}' (type: {ctype}) appears in both "
-                f"public_bounds and public_categories. "
-                f"For categorical columns only public_categories "
-                f"is needed. public_bounds entry will be ignored "
-                f"by CRNPrivBayes.")
+                f"WARN '{col}' (type: {ctype}): discrete columns do not need "
+                f"public_bounds; only public_categories is used. Remove "
+                f"public_bounds['{col}'] to make the schema mutually exclusive.")
         elif ctype in NUMERIC_TYPES:
             warnings.append(
-                f"WARN '{col}' (type: {ctype}) appears in both "
-                f"public_bounds and public_categories. "
-                f"For numeric columns only public_bounds is needed.")
+                f"WARN '{col}' (type: {ctype}): numeric columns do not need "
+                f"public_categories; only public_bounds is used. Remove "
+                f"public_categories['{col}'] to make the schema mutually exclusive.")
 
     # ── 6. target_spec must be present and complete ───────────────
     if not target_spec:

@@ -646,6 +646,55 @@ class PrivBayesSynthesizerEnhanced:
         self._datetime_cols = set(schema.get("datetime_spec", {}).keys())
         self._schema_constraints = schema.get("constraints", {})
 
+        # ------------------------------------------------------------------ #
+        # extensions.privbayes — read all v1.5/v1.6 schema-derived parameters #
+        # ------------------------------------------------------------------ #
+        pb_ext = schema.get("extensions", {}).get("privbayes", {})
+
+        # A. max_parents — override the constructor default with the
+        #    sensitivity-crossover value computed by schema_generator.
+        #    This is the smallest k s.t. max_bins_total^k >= n_records —
+        #    beyond this point more parents inflate CPT size with no noise
+        #    benefit.  Only apply when the schema carries the field.
+        ext_max_parents = pb_ext.get("max_parents")
+        if ext_max_parents is not None:
+            try:
+                self.max_parents = int(ext_max_parents)
+            except (TypeError, ValueError):
+                pass
+
+        # B. forbidden_parents — populate parent_blacklist so the greedy
+        #    structure search never places status as a parent of time
+        #    (or any other schema-declared forbidden edge).
+        structure = pb_ext.get("structure", {})
+        for child, forbidden in structure.get("forbidden_parents", {}).items():
+            self.parent_blacklist.setdefault(child, set()).update(forbidden or [])
+
+        # C. partial_order — store for use in fit() to reorder columns so
+        #    the greedy cols[:j] parent search respects causal ordering.
+        partial_order = structure.get("partial_order", [])
+        self._schema_partial_order: list[str] = list(partial_order) if partial_order else []
+
+        # D. per_column discretization — store for _build_meta_from_schema()
+        #    Contains schema-derived n_bins (Sturges), n_bins_total (NaN bin),
+        #    strategy (equal_width/quantile), dirichlet_alpha (Perks prior),
+        #    has_nan_bin, nan_bin_index per numeric column.
+        per_col = pb_ext.get("discretization", {}).get("per_column", {})
+        self._schema_pb_per_col: dict[str, dict] = dict(per_col) if per_col else {}
+
+        # E. per-column Dirichlet smoothing (Perks prior: 1/n_bins_total).
+        #    Converted to per-cell pseudo-count (added directly to raw counts
+        #    before normalisation — standard Dirichlet-multinomial equivalence).
+        #    Stored as float per column; fallback is self.cpt_smoothing.
+        self._schema_col_smoothing: dict[str, float] = {}
+        for col, entry in self._schema_pb_per_col.items():
+            alpha = entry.get("dirichlet_alpha")
+            if alpha is not None:
+                try:
+                    self._schema_col_smoothing[col] = float(alpha)
+                except (TypeError, ValueError):
+                    pass
+
         dataset = schema.get("dataset", {})
         # Prefer a dict-style dataset with explicit n_records; fall back to
         # an optional legacy dataset_info block when dataset is a string.
@@ -803,9 +852,50 @@ class PrivBayesSynthesizerEnhanced:
                     k    = len(norm) - 1
                     bins = norm
                 else:
+                    # --- schema_generator v1.6: read per-column parameters ---
+                    pb_entry = getattr(self, "_schema_pb_per_col", {}).get(c, {})
                     k_override = self.numeric_bins_overrides.get(c)
-                    k = max(2, int(k_override)) if k_override is not None else max(2, int(self.bins_per_numeric))
-                    bins = np.linspace(0.0, 1.0, k + 1)
+
+                    if k_override is not None:
+                        # Explicit caller override always wins
+                        k = max(2, int(k_override))
+                    elif pb_entry.get("n_bins") is not None:
+                        # Schema-derived Sturges bin count (capped at auto_max)
+                        k = max(2, int(pb_entry["n_bins"]))
+                    else:
+                        k = max(2, int(self.bins_per_numeric))
+
+                    # Strategy: equal_width (linspace) or quantile (percentiles)
+                    strategy = pb_entry.get("strategy", "equal_width")
+                    if strategy == "quantile":
+                        # Compute quantile-based edges from the training column.
+                        # This reads private data, but discretization is the
+                        # schema-authoritative phase — the edges are not exported
+                        # and are post-processed into bin indices before any DP
+                        # query is made.
+                        x_col = pd.to_numeric(df[c], errors="coerce").dropna().to_numpy()
+                        x_clipped = np.clip(x_col, L, U)
+                        if x_clipped.size > 0:
+                            pcts = np.linspace(0.0, 100.0, k + 1)
+                            raw_edges = np.percentile(x_clipped, pcts)
+                            raw_edges[0]  = L
+                            raw_edges[-1] = U
+                            raw_edges = np.unique(raw_edges)
+                            norm = np.clip((raw_edges - L) / max(U - L, 1e-12), 0.0, 1.0)
+                            bins = np.clip(norm, 0.0, 1.0)
+                            k = len(bins) - 1
+                        else:
+                            bins = np.linspace(0.0, 1.0, k + 1)
+                    else:
+                        bins = np.linspace(0.0, 1.0, k + 1)
+
+                    # NaN bin: n_bins_total = n_bins + 1 when has_nan_bin=True.
+                    # _ColMeta.k must equal n_bins_total so CPT sizing is correct
+                    # and _discretize() can write NaN rows to the extra bin slot.
+                    has_nan_bin   = bool(pb_entry.get("has_nan_bin", False))
+                    nan_bin_index = pb_entry.get("nan_bin_index")
+                    if has_nan_bin and nan_bin_index is not None:
+                        k = int(nan_bin_index) + 1  # = n_bins_total
 
                 meta[c] = _ColMeta(
                     kind="numeric",
@@ -1159,11 +1249,23 @@ class PrivBayesSynthesizerEnhanced:
                         reveal_row_index_in_errors=getattr(self, "reveal_row_index_in_errors", False),
                     )
 
+                # Check whether this column uses an explicit NaN bin
+                pb_entry     = getattr(self, "_schema_pb_per_col", {}).get(c, {})
+                has_nan_bin  = bool(pb_entry.get("has_nan_bin", False))
+                nan_bin_idx  = pb_entry.get("nan_bin_index")
+
+                nan_mask = ~np.isfinite(x)
                 z = (x - lo) / max(hi - lo, 1e-12)
                 z = np.where(np.isfinite(z), z, 0.5)
                 z = np.clip(z, 0.0, 1.0)
                 idx = np.digitize(z, m.bins, right=False) - 1
                 idx = np.clip(idx, 0, m.k - 1)
+
+                if has_nan_bin and nan_bin_idx is not None and np.any(nan_mask):
+                    # Route missing values to their dedicated NaN bin slot
+                    # instead of leaving them at bin midpoint (0.5 → bin ~k/2).
+                    idx[nan_mask] = int(nan_bin_idx)
+
                 out[c] = idx.astype(int, copy=False)
             else:
                 # Categorical: keep unknowns as token (no NaNs)
@@ -1319,6 +1421,21 @@ class PrivBayesSynthesizerEnhanced:
         self._build_meta(df)
         disc = self._discretize(df)
         cols = list(disc.columns)
+
+        # Apply schema partial_order when present.
+        # Reorder cols so that columns appearing earlier in the partial_order
+        # list come first; unlisted columns retain their original relative
+        # order after all listed columns.  The greedy parent search uses
+        # cols[:j], so this enforces the causal ordering declared in the schema
+        # (e.g. time and status last so covariates can only be their parents,
+        # not the other way around).
+        partial_order = getattr(self, "_schema_partial_order", [])
+        if partial_order:
+            ordered = [c for c in partial_order if c in cols]
+            rest    = [c for c in cols if c not in set(ordered)]
+            cols    = ordered + rest
+            disc    = disc[cols]
+
         self._order = cols[:]
 
         parents: Dict[str, List[str]] = {c: [] for c in cols}
@@ -1366,13 +1483,16 @@ class PrivBayesSynthesizerEnhanced:
         for c in cols:
             k_child = self._meta[c].k
             pa = parents[c]
+            # Per-column smoothing: schema Perks prior (dirichlet_alpha) converted
+            # to a pseudo-count, or fall back to the global cpt_smoothing value.
+            col_smooth = getattr(self, "_schema_col_smoothing", {}).get(c, self.cpt_smoothing)
             if len(pa) == 0:
                 counts = np.bincount(disc[c].to_numpy(), minlength=k_child).astype(float)
                 if eps_per_var > 0:
                     counts += self._lap(eps_per_var, counts.shape, sens=None)
                 # Apply smoothing to DP-noisy counts
                 counts = np.maximum(counts, 0.0)
-                counts += self.cpt_smoothing
+                counts += col_smooth
                 probs = (counts / counts.sum().clip(min=1e-12)).reshape(1, k_child).astype(self.cpt_dtype)
                 self._cpt[c] = {"parents": [], "parent_card": [], "probs": probs}
             else:
@@ -1391,7 +1511,7 @@ class PrivBayesSynthesizerEnhanced:
                         counts += self._lap(eps_per_var, counts.shape, sens=None)
                     # Apply smoothing to DP-noisy counts
                     counts = np.maximum(counts, 0.0)
-                    counts += self.cpt_smoothing
+                    counts += col_smooth
                     probs = (counts / counts.sum().clip(min=1e-12)).reshape(1, k_child).astype(self.cpt_dtype)
                     self._cpt[c] = {"parents": [], "parent_card": [], "probs": probs}
                     continue
@@ -1408,7 +1528,7 @@ class PrivBayesSynthesizerEnhanced:
                     counts[deg, :] = 1.0
                 # Apply smoothing to DP-noisy counts
                 counts = np.maximum(counts, 0.0)
-                counts += self.cpt_smoothing
+                counts += col_smooth
                 probs = (counts / counts.sum(axis=1, keepdims=True).clip(min=1e-12)).astype(self.cpt_dtype)
                 self._cpt[c] = {"parents": pa, "parent_card": par_ks, "probs": probs}
 
@@ -1514,8 +1634,12 @@ class PrivBayesSynthesizerEnhanced:
             z = codes[c]
             if m.kind == "numeric":
                 lo, hi = m.bounds if m.bounds is not None else (0.0, 1.0)
-                left = m.bins[z]
-                right = m.bins[np.minimum(z + 1, m.k)]
+                n_edges = len(m.bins)
+                # Clamp so we never index past m.bins (schema may have extra NaN bin)
+                z_lo = np.minimum(z, n_edges - 2) if n_edges >= 2 else 0
+                z_hi = np.minimum(z + 1, n_edges - 1) if n_edges >= 1 else 0
+                left = m.bins[z_lo]
+                right = m.bins[z_hi]
                 u = rng.random(n)
                 val01 = left + (right - left) * u
                 val = lo + val01 * (hi - lo)

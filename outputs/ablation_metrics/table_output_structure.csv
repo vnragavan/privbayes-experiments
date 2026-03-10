@@ -1,5 +1,5 @@
 implementation,condition,binary_invalid_rate,categorical_invalid_rate,integer_float_column_rate,out_of_bounds_rate
-dpmm,adapted,0.0,0.0,0.0,0.0
+dpmm,adapted,0.0,0.0,0.0,0.03466386554621849
 dpmm,raw,0.0,1.0,0.5,0.0
-synthcity,adapted,0.0,0.0,0.0,0.0
+synthcity,adapted,0.0,0.0,0.0,0.0031512605042016808
 synthcity,raw,0.0,1.0,0.5,0.0
