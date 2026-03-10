@@ -279,4 +279,4 @@ In **private mode**, ε₁ = `--schema-epsilon` (e.g. 0.5) is spent once when th
 
 The sweep in `run_sweep.py` varies ε₂. The ε₁ cost does not change between sweep points and should be reported as a fixed additive offset in all figures and tables.
 
-For the full schema generator field reference, DP coverage details, and NPA warnings see [schema_generator_README.md](schema_generator_README.md).
+For the full schema generator field reference, DP coverage details, and NPA warnings see [docs/schema_generator_README.md](docs/schema_generator_README.md).
